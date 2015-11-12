@@ -2,7 +2,7 @@
  * 2006-2009 Bjorn Andersson <flex@kryo.se>
  * Copyright (c) 2007 Albert Lee <trisk@acm.jhu.edu>.
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -173,7 +173,13 @@ get_addr(char *host, int port, int addr_family, int flags, struct sockaddr_stora
 int
 open_dns(struct sockaddr_storage *sockaddr, size_t sockaddr_len)
 {
-	int flag = 1;
+	return open_dns_opt(sockaddr, sockaddr_len, -1);
+}
+
+int
+open_dns_opt(struct sockaddr_storage *sockaddr, size_t sockaddr_len, int v6only)
+{
+	int flag;
 	int fd;
 
 	if ((fd = socket(sockaddr->ss_family, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
@@ -187,11 +193,12 @@ open_dns(struct sockaddr_storage *sockaddr, size_t sockaddr_len)
 	setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void*) &flag, sizeof(flag));
 
 #ifndef WINDOWS32
-	/* To get destination address from each UDP datagram, see iodined.c:read_dns() */
-	setsockopt(fd, IPPROTO_IP, DSTADDR_SOCKOPT, (const void*) &flag, sizeof(flag));
-
 	fd_set_close_on_exec(fd);
 #endif
+
+	if (sockaddr->ss_family == AF_INET6 && v6only >= 0) {
+		setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (const void*) &v6only, sizeof(v6only));
+	}
 
 #ifdef IP_OPT_DONT_FRAG
 	/* Set dont-fragment ip header flag */
@@ -445,23 +452,6 @@ errx(int eval, const char *fmt, ...)
 	warnx(fmt, list);
 	va_end(list);
 	exit(eval);
-}
-#endif
-
-#if defined(__ANDROID__)
-void android_log_callback(const char *);
-static char printf_buf[1024];;
-void android_printf(const char *fmt, ...)
-{
-	va_list list;
-	va_start(list, fmt);
-
-	vsnprintf(printf_buf,1024,fmt,list);
-    android_log_callback(printf_buf);
-
-     __android_log_vprint(ANDROID_LOG_INFO, "Iodine",
-                         fmt, list);
-	va_end(list);
 }
 #endif
 

@@ -2,7 +2,7 @@
  * Copyright (c) 2006-2014 Erik Ekman <yarrick@kryo.se>,
  * 2006-2009 Bjorn Andersson <flex@kryo.se>
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -31,12 +31,11 @@
 
 #ifdef WINDOWS32
 #include "windows.h"
-#include <winsock2.h>
 #else
+#include <arpa/nameser.h>
 #ifdef ANDROID
 #include "android_dns.h"
 #endif
-#include <arpa/nameser.h>
 #ifdef DARWIN
 #define BIND_8_COMPAT
 #include <arpa/nameser_compat.h>
@@ -65,7 +64,8 @@ static const char *password;
 
 static struct sockaddr_storage nameserv;
 static int nameserv_len;
-static struct sockaddr_in raw_serv;
+static struct sockaddr_storage raw_serv;
+static int raw_serv_len;
 static const char *topdomain;
 
 static uint16_t rand_seed;
@@ -243,7 +243,7 @@ client_set_hostname_maxlen(int i)
 const char *
 client_get_raw_addr()
 {
-	return inet_ntoa(raw_serv.sin_addr);
+	return format_addr(&raw_serv, raw_serv_len);
 }
 
 static void
@@ -1096,113 +1096,113 @@ tunnel_dns(int tun_fd, int dns_fd)
 static int
 always_1()
 {
-	return 1;
+  return 1;
 }
 
 int
 client_tunnel(int tun_fd, int dns_fd)
 {
-	return client_tunnel_cb(tun_fd, dns_fd, &always_1);
+  return client_tunnel_cb(tun_fd, dns_fd, &always_1);
 }
 
 int
 client_tunnel_cb(int tun_fd, int dns_fd, int
                  (*cb_ask_continue)())
 {
-	struct timeval tv;
-	fd_set fds;
-	int rv;
-	int i;
+  struct timeval tv;
+  fd_set fds;
+  int rv;
+  int i;
 
-	rv = 0;
-	lastdownstreamtime = time(NULL);
-	send_query_sendcnt = 0;  /* start counting now */
+  rv = 0;
+  lastdownstreamtime = time(NULL);
+  send_query_sendcnt = 0;  /* start counting now */
 
-	while (running && cb_ask_continue()) {
-		tv.tv_sec = selecttimeout;
-		tv.tv_usec = 0;
+  while (running && cb_ask_continue()) {
+    tv.tv_sec = selecttimeout;
+    tv.tv_usec = 0;
 
-		if (is_sending()) {
-			/* fast timeout for retransmits */
-			tv.tv_sec = 1;
-			tv.tv_usec = 0;
-		}
+    if (is_sending()) {
+      /* fast timeout for retransmits */
+      tv.tv_sec = 1;
+      tv.tv_usec = 0;
+    }
 
-		if (send_ping_soon) {
-			tv.tv_sec = 0;
-			tv.tv_usec = send_ping_soon * 1000;
-		}
+    if (send_ping_soon) {
+      tv.tv_sec = 0;
+      tv.tv_usec = send_ping_soon * 1000;
+    }
 
-		FD_ZERO(&fds);
-		if (!is_sending() || outchunkresent >= 2) {
-			/* If re-sending upstream data, chances are that
-			   we're several seconds behind already and TCP
-			   will start filling tun buffer with (useless)
-			   retransmits.
-			   Get up-to-date fast by simply dropping stuff,
-			   that's what TCP is designed to handle. */
-			FD_SET(tun_fd, &fds);
-		}
-		FD_SET(dns_fd, &fds);
+    FD_ZERO(&fds);
+    if (!is_sending() || outchunkresent >= 2) {
+      /* If re-sending upstream data, chances are that
+         we're several seconds behind already and TCP
+         will start filling tun buffer with (useless)
+         retransmits.
+         Get up-to-date fast by simply dropping stuff,
+         that's what TCP is designed to handle. */
+      FD_SET(tun_fd, &fds);
+    }
+    FD_SET(dns_fd, &fds);
 
-		i = select(MAX(tun_fd, dns_fd) + 1, &fds, NULL, NULL, &tv);
+    i = select(MAX(tun_fd, dns_fd) + 1, &fds, NULL, NULL, &tv);
 
- 		if (lastdownstreamtime + 60 < time(NULL)) {
- 			warnx("No downstream data received in 60 seconds, shutting down.");
- 			running = 0;
- 		}
+    if (lastdownstreamtime + 60 < time(NULL)) {
+      warnx("No downstream data received in 60 seconds, shutting down.");
+      running = 0;
+    }
 
-		if (running == 0)
-			break;
+    if (running == 0)
+      break;
 
-		if (i < 0)
-			err(1, "select");
+    if (i < 0)
+      err(1, "select");
 
-		if (i == 0) {
-			/* timeout */
-			if (is_sending()) {
-				/* Re-send current fragment; either frag
-				   or ack probably dropped somewhere.
-				   But problem: no cache-miss-counter,
-				   so hostname will be identical.
-				   Just drop whole packet after 3 retries,
-				   and TCP retransmit will solve it.
-				   NOTE: tun dropping above should be
-				   >=(value_here - 1) */
-				if (outchunkresent < 3) {
-					outchunkresent++;
-					send_chunk(dns_fd);
-				} else {
-					outpkt.offset = 0;
-					outpkt.len = 0;
-					outpkt.sentlen = 0;
-					outchunkresent = 0;
+    if (i == 0) {
+      /* timeout */
+      if (is_sending()) {
+        /* Re-send current fragment; either frag
+           or ack probably dropped somewhere.
+           But problem: no cache-miss-counter,
+           so hostname will be identical.
+           Just drop whole packet after 3 retries,
+           and TCP retransmit will solve it.
+           NOTE: tun dropping above should be
+           >=(value_here - 1) */
+        if (outchunkresent < 3) {
+          outchunkresent++;
+          send_chunk(dns_fd);
+        } else {
+          outpkt.offset = 0;
+          outpkt.len = 0;
+          outpkt.sentlen = 0;
+          outchunkresent = 0;
 
-					send_ping(dns_fd);
-				}
-			} else {
-				send_ping(dns_fd);
-			}
-			send_ping_soon = 0;
+          send_ping(dns_fd);
+        }
+      } else {
+        send_ping(dns_fd);
+      }
+      send_ping_soon = 0;
 
-		} else {
+    } else {
 
-			if (FD_ISSET(tun_fd, &fds)) {
-				if (tunnel_tun(tun_fd, dns_fd) <= 0)
-					continue;
-				/* Returns -1 on error OR when quickly
-				   dropping data in case of DNS congestion;
-				   we need to _not_ do tunnel_dns() then.
-				   If chunk sent, sets send_ping_soon=0. */
-			}
-			if (FD_ISSET(dns_fd, &fds)) {
-				if (tunnel_dns(tun_fd, dns_fd) <= 0)
-					continue;
-			}
-		}
-	}
+      if (FD_ISSET(tun_fd, &fds)) {
+        if (tunnel_tun(tun_fd, dns_fd) <= 0)
+          continue;
+        /* Returns -1 on error OR when quickly
+           dropping data in case of DNS congestion;
+           we need to _not_ do tunnel_dns() then.
+           If chunk sent, sets send_ping_soon=0. */
+      }
+      if (FD_ISSET(dns_fd, &fds)) {
+        if (tunnel_dns(tun_fd, dns_fd) <= 0)
+          continue;
+      }
+    }
+  }
 
-	return rv;
+  return rv;
 }
 
 static void
@@ -1409,7 +1409,7 @@ handshake_version(int dns_fd, int *seed)
 
 	for (i = 0; running && i < 5; i++) {
 
-		send_version(dns_fd, VERSION);
+		send_version(dns_fd, PROTOCOL_VERSION);
 
 		read = handshake_waitdns(dns_fd, in, sizeof(in), 'v', 'V', i+1);
 
@@ -1425,11 +1425,12 @@ handshake_version(int dns_fd, int *seed)
 				userid_char = hex[userid & 15];
 				userid_char2 = hex2[userid & 15];
 
-				fprintf(stderr, "Version ok, both using protocol v 0x%08x. You are user #%d\n", VERSION, userid);
+				fprintf(stderr, "Version ok, both using protocol v 0x%08x. You are user #%d\n",
+					PROTOCOL_VERSION, userid);
 				return 0;
 			} else if (strncmp("VNAK", in, 4) == 0) {
 				warnx("You use protocol v 0x%08x, server uses v 0x%08x. Giving up",
-						VERSION, payload);
+						PROTOCOL_VERSION, payload);
 				return 1;
 			} else if (strncmp("VFUL", in, 4) == 0) {
 				warnx("Server full, all %d slots are taken. Try again later", payload);
@@ -1501,8 +1502,10 @@ handshake_raw_udp(int dns_fd, int seed)
 	int i;
 	int r;
 	int len;
-	unsigned remoteaddr = 0;
-	struct in_addr server;
+	int got_addr;
+
+	memset(&raw_serv, 0, sizeof(raw_serv));
+	got_addr = 0;
 
 	fprintf(stderr, "Testing raw UDP data to the server (skip with -r)");
 	for (i=0; running && i<3 ;i++) {
@@ -1512,15 +1515,23 @@ handshake_raw_udp(int dns_fd, int seed)
 		len = handshake_waitdns(dns_fd, in, sizeof(in), 'i', 'I', i+1);
 
 		if (len == 5 && in[0] == 'I') {
-			/* Received IP address */
-			remoteaddr = (in[1] & 0xff);
-			remoteaddr <<= 8;
-			remoteaddr |= (in[2] & 0xff);
-			remoteaddr <<= 8;
-			remoteaddr |= (in[3] & 0xff);
-			remoteaddr <<= 8;
-			remoteaddr |= (in[4] & 0xff);
-			server.s_addr = ntohl(remoteaddr);
+			/* Received IPv4 address */
+			struct sockaddr_in *raw4_serv = (struct sockaddr_in *) &raw_serv;
+			raw4_serv->sin_family = AF_INET;
+			memcpy(&raw4_serv->sin_addr, &in[1], sizeof(struct in_addr));
+			raw4_serv->sin_port = htons(53);
+			raw_serv_len = sizeof(struct sockaddr_in);
+			got_addr = 1;
+			break;
+		}
+		if (len == 17 && in[0] == 'I') {
+			/* Received IPv6 address */
+			struct sockaddr_in6 *raw6_serv = (struct sockaddr_in6 *) &raw_serv;
+			raw6_serv->sin6_family = AF_INET6;
+			memcpy(&raw6_serv->sin6_addr, &in[1], sizeof(struct in6_addr));
+			raw6_serv->sin6_port = htons(53);
+			raw_serv_len = sizeof(struct sockaddr_in6);
+			got_addr = 1;
 			break;
 		}
 
@@ -1531,18 +1542,12 @@ handshake_raw_udp(int dns_fd, int seed)
 	if (!running)
 		return 0;
 
-	if (!remoteaddr) {
+	if (!got_addr) {
 		fprintf(stderr, "Failed to get raw server IP, will use DNS mode.\n");
 		return 0;
 	}
-	fprintf(stderr, "Server is at %s, trying raw login: ", inet_ntoa(server));
+	fprintf(stderr, "Server is at %s, trying raw login: ", format_addr(&raw_serv, raw_serv_len));
 	fflush(stderr);
-
-	/* Store address to iodined server */
-	memset(&raw_serv, 0, sizeof(raw_serv));
-	raw_serv.sin_family = AF_INET;
-	raw_serv.sin_port = htons(53);
-	raw_serv.sin_addr = server;
 
 	/* do login against port 53 on remote server
 	 * based on the old seed. If reply received,

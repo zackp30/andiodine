@@ -2,7 +2,7 @@
  * Copyright (c) 2006-2014 Erik Ekman <yarrick@kryo.se>,
  * 2006-2009 Bjorn Andersson <flex@kryo.se>
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -90,24 +90,6 @@ users_get_first_ip()
 	struct in_addr ip;
 	ip.s_addr = users[0].tun_ip;
 	return strdup(inet_ntoa(ip));
-}
-
-int
-users_waiting_on_reply()
-{
-	int ret;
-	int i;
-
-	ret = 0;
-	for (i = 0; i < usercount; i++) {
-		if (users[i].active && !users[i].disabled &&
-			users[i].last_pkt + 60 > time(NULL) &&
-			users[i].q.id != 0 && users[i].conn == CONN_DNS_NULL) {
-			ret++;
-		}
-	}
-
-	return ret;
 }
 
 int
@@ -199,7 +181,7 @@ user_set_conn_type(int userid, enum connection c)
 	if (userid < 0 || userid >= usercount)
 		return;
 
-	if (c < 0 || c >= CONN_MAX)
+	if (c < CONN_RAW_UDP || c >= CONN_MAX)
 		return;
 
 	users[userid].conn = c;

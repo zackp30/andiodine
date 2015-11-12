@@ -2,7 +2,7 @@
  * Copyright (c) 2006-2014 Erik Ekman <yarrick@kryo.se>,
  * 2006-2009 Bjorn Andersson <flex@kryo.se>
  *
- * Permission to use, copy, modify, and distribute this software for any
+ * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <android/log.h>
+
 #ifndef _TUN_H_
 #define _TUN_H_
 
@@ -24,15 +26,13 @@ int write_tun(int, char *, size_t);
 ssize_t read_tun(int, char *, size_t);
 int tun_setip(const char *, const char *, int);
 int tun_setmtu(const unsigned);
-
 #ifdef __ANDROID__
 struct _tun_config_android {
-	char *ip;
-	char *remoteip;
-	int netbits;
-	unsigned mtu;
-	int request_disconnect;
+  char *ip;
+  char *remoteip;
+  int netbits;
+  unsigned mtu;
+  int request_disconnect;
 } tun_config_android;
 #endif /* __ANDROID__ */
-
 #endif /* _TUN_H_ */
